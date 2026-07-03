@@ -151,7 +151,7 @@ fn handle_touches_down(env: &mut Environment, map: HashMap<FingerId, Coords>) {
             return handle_touches_move(env, HashMap::from([(finger_id, coords)]));
         }
 
-        log_dbg!("Finger {:?} touch down: {:?}", finger_id, coords);
+        log!("[touchdbg] Finger {:?} touch down: {:?}", finger_id, coords);
 
         let location = CGPoint {
             x: coords.0,
@@ -303,8 +303,8 @@ fn handle_touches_down(env: &mut Environment, map: HashMap<FingerId, Coords>) {
     }
 
     for (view, touches) in view_touches {
-        log_dbg!(
-            "Sending [{:?} touchesBegan:{:?} withEvent:{:?}]",
+        log!(
+            "[touchdbg] Sending [{:?} touchesBegan:{:?} withEvent:{:?}]",
             view,
             touches,
             event
