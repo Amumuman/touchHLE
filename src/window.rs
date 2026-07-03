@@ -886,6 +886,9 @@ impl Window {
                     let mut buf = String::new();
                     if let Ok(n) = f.read_to_string(&mut buf) {
                         self.scripted_input_pos += n as u64;
+                        if n > 0 {
+                            log!("[scripted] read {} bytes: {:?}", n, buf.trim());
+                        }
                         let (win_w, win_h) = self.window.size();
                         let mut pending: Vec<(u8, (f32, f32))> = Vec::new();
                         for line in buf.lines() {
@@ -912,6 +915,13 @@ impl Window {
                             pending.push((kind, coords));
                         }
                         for (kind, coords) in pending {
+                            log!(
+                                "[scripted] inject kind={} coords={:?} (win {}x{})",
+                                kind,
+                                coords,
+                                win_w,
+                                win_h
+                            );
                             let ev = match kind {
                                 0 => Event::TouchesDown(HashMap::from([(FingerId::Mouse, coords)])),
                                 1 => Event::TouchesUp(HashMap::from([(FingerId::Mouse, coords)])),
