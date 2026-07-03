@@ -1,0 +1,60 @@
+name: Build touchHLE (StoreKit mock)
+
+# Minimal Windows-only build to validate the offline StoreKit cash mock and
+# produce a runnable touchHLE.exe. Skips test/lint/format/LLVM (not needed for a
+# playable binary). Clones THIS fork (upstream workflow hardcodes touchHLE/touchHLE).
+
+on:
+  push:
+    branches: [ trunk ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-win:
+    runs-on: windows-2022
+    steps:
+    - name: Checkout this fork
+      shell: bash
+      run: |
+        git clone https://github.com/Amumuman/touchHLE "$GITHUB_WORKSPACE"
+        cd "$GITHUB_WORKSPACE"
+        git checkout "$GITHUB_SHA" || echo "using trunk HEAD"
+        git submodule update --init
+    - name: Try to get cached copy of Boost
+      id: cache-boost
+      uses: actions/cache@v3
+      with:
+        path: vendor\boost
+        key: boost_1_81_0
+    - if: ${{ steps.cache-boost.outputs.cache-hit != 'true' }}
+      name: Download Boost
+      run: curl -L -o boost_1_81_0.7z "https://archives.boost.io/release/1.81.0/source/boost_1_81_0.7z"
+    - if: ${{ steps.cache-boost.outputs.cache-hit != 'true' }}
+      name: Extract Boost
+      run: 7z -ovendor x boost_1_81_0.7z && ren vendor\boost_1_81_0 boost
+    - name: Try to get cached copy of cmake
+      id: cache-cmake
+      uses: actions/cache@v3
+      with:
+        path: vendor/cmake
+        key: cmake_3_31_6_windows
+    - if: ${{ steps.cache-cmake.outputs.cache-hit != 'true' }}
+      name: Download Cmake
+      run: curl -L -O "https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-windows-x86_64.zip"
+    - if: ${{ steps.cache-cmake.outputs.cache-hit != 'true' }}
+      name: Extract Cmake
+      run: 7z -ovendor x "cmake-3.31.6-windows-x86_64.zip" && ren vendor\cmake-3.31.6-windows-x86_64 cmake
+    - name: Build
+      run: cargo build --release
+      env:
+        CMAKE: ${{ github.workspace }}\vendor\cmake\bin\cmake
+    - name: Create bundle
+      shell: bash
+      run: cd dev-scripts && ./make-windows-bundle.sh ../target/release/touchHLE.exe && mv touchHLE_windows_bundle/ ..
+    - uses: actions/upload-artifact@v4
+      with:
+        name: touchHLE_Windows_x86_64_mock
+        path: touchHLE_windows_bundle/
