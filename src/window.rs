@@ -242,6 +242,12 @@ pub struct Window {
     virtual_cursor_last: Option<(f32, f32, bool, bool)>,
     virtual_cursor_last_unsticky: Option<(f32, f32, Instant)>,
     virtual_accelerometer_last: Option<(f32, f32, bool)>,
+    /// Scripted touch injection (StoreKit-mock fork): path to a command file
+    /// (env `TOUCHHLE_SCRIPTED_INPUT`) and the byte offset already consumed.
+    /// Lines: `DOWN nx ny` / `UP nx ny` / `MOVE nx ny` with normalized [0,1]
+    /// window coords, injected as `FingerId::Mouse` touches (bypasses OS/SDL).
+    scripted_input_path: Option<std::path::PathBuf>,
+    scripted_input_pos: u64,
     /// Whether or not we are on the "main" environment stack (rather than
     /// a coroutine stack). Checked in various functions to make sure that
     /// certain SDL functions (that call JNI functions) are on the main
@@ -372,6 +378,9 @@ impl Window {
             last_polled: Instant::now() - Duration::from_secs(1),
             high_priority_event: None,
             enable_event_polling: true,
+            scripted_input_path: std::env::var_os("TOUCHHLE_SCRIPTED_INPUT")
+                .map(std::path::PathBuf::from),
+            scripted_input_pos: 0,
             #[cfg(target_os = "macos")]
             max_height,
             #[cfg(target_os = "macos")]
@@ -865,6 +874,54 @@ impl Window {
                     }
                     _ => return,
                 });
+        }
+
+        // StoreKit-mock fork: scripted touch injection for headless driving.
+        // Reads new lines from the env-specified command file each poll and injects
+        // them as mouse-finger touches, bypassing the OS/SDL input path entirely.
+        if let Some(path) = self.scripted_input_path.clone() {
+            use std::io::{Read, Seek, SeekFrom};
+            if let Ok(mut f) = std::fs::File::open(&path) {
+                if f.seek(SeekFrom::Start(self.scripted_input_pos)).is_ok() {
+                    let mut buf = String::new();
+                    if let Ok(n) = f.read_to_string(&mut buf) {
+                        self.scripted_input_pos += n as u64;
+                        let (win_w, win_h) = self.window.size();
+                        let mut pending: Vec<(u8, (f32, f32))> = Vec::new();
+                        for line in buf.lines() {
+                            let mut it = line.split_whitespace();
+                            let kind = match it.next() {
+                                Some("DOWN") => 0u8,
+                                Some("UP") => 1u8,
+                                Some("MOVE") => 2u8,
+                                _ => continue,
+                            };
+                            let nx: f32 = match it.next().and_then(|s| s.parse().ok()) {
+                                Some(v) => v,
+                                None => continue,
+                            };
+                            let ny: f32 = match it.next().and_then(|s| s.parse().ok()) {
+                                Some(v) => v,
+                                None => continue,
+                            };
+                            let coords = transform_input_coords(
+                                self,
+                                (nx * win_w as f32, ny * win_h as f32),
+                                false,
+                            );
+                            pending.push((kind, coords));
+                        }
+                        for (kind, coords) in pending {
+                            let ev = match kind {
+                                0 => Event::TouchesDown(HashMap::from([(FingerId::Mouse, coords)])),
+                                1 => Event::TouchesUp(HashMap::from([(FingerId::Mouse, coords)])),
+                                _ => Event::TouchesMove(HashMap::from([(FingerId::Mouse, coords)])),
+                            };
+                            self.event_queue.push_back(ev);
+                        }
+                    }
+                }
+            }
         }
     }
 
